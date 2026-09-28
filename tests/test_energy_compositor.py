@@ -1,13 +1,14 @@
 """Behavioral tests for Energy Compositor."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
 from custom_components.energy_compositor.config_flow import validate_mapping, validate_mappings
+from custom_components.energy_compositor import async_unload_entry
 from custom_components.energy_compositor.sensor import CompositorSensor
 from custom_components.energy_compositor.sensor import async_setup_entry as async_setup_sensors
 
@@ -106,6 +107,14 @@ async def test_shared_state_listener(hass):
     await hass.async_block_till_done()
     sensor.async_write_ha_state.assert_called()
     assert sensor.native_value == 200
+
+
+async def test_unload_delegates_cleanup_to_home_assistant(hass):
+    entry = Mock()
+    with patch.object(hass.config_entries, "async_unload_platforms", new_callable=AsyncMock, return_value=True) as unload:
+        assert await async_unload_entry(hass, entry)
+    unload.assert_awaited_once_with(entry, ["sensor"])
+    assert not entry.async_unload.called
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

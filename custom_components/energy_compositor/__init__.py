@@ -3,8 +3,6 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-
 PLATFORMS = ["sensor"]
 
 
@@ -19,7 +17,4 @@ async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        entry.async_unload()
-        return True
-    return False
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
