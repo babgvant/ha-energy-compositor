@@ -1,6 +1,7 @@
 """Behavioral tests for Energy Compositor."""
 
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -59,6 +60,27 @@ def test_unavailable_and_recovery(hass):
 def test_energy_class_must_agree(hass):
     hass.states.async_set("sensor.a", 1, {"unit_of_measurement": "kWh", "state_class": "total"})
     hass.states.async_set("sensor.b", 2, {"unit_of_measurement": "kWh", "state_class": "total_increasing"})
+    sensor = make_sensor(hass, "home_energy", {"mode": "sum", "entities": ["sensor.a", "sensor.b"]})
+    assert sensor.state_class is None
+    assert sensor.available is False
+
+
+def test_energy_reset_is_preserved(hass):
+    reset = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    hass.states.async_set("sensor.daily", 78.8, {
+        "unit_of_measurement": "kWh", "state_class": "total",
+        "last_reset": reset.isoformat(),
+    })
+    sensor = make_sensor(hass, "home_energy", {"mode": "entity", "entities": ["sensor.daily"]})
+    assert sensor.last_reset == reset
+
+
+def test_mixed_energy_reset_cycles_are_unavailable(hass):
+    for entity_id, reset in (("sensor.a", "2026-09-27T00:00:00+00:00"),
+                             ("sensor.b", "2026-09-01T00:00:00+00:00")):
+        hass.states.async_set(entity_id, 1, {
+            "unit_of_measurement": "kWh", "state_class": "total", "last_reset": reset,
+        })
     sensor = make_sensor(hass, "home_energy", {"mode": "sum", "entities": ["sensor.a", "sensor.b"]})
     assert sensor.state_class is None
     assert sensor.available is False

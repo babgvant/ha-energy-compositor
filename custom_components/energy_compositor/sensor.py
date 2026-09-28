@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import datetime
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
@@ -44,10 +45,26 @@ def _energy_class(states):
     """Only expose statistics when all sources agree on cumulative semantics."""
     classes = {state.attributes.get("state_class") for state in states}
     if classes == {SensorStateClass.TOTAL}:
-        return SensorStateClass.TOTAL
+        resets = {state.attributes.get("last_reset") for state in states}
+        return SensorStateClass.TOTAL if len(resets) == 1 else None
     if classes == {SensorStateClass.TOTAL_INCREASING}:
         return SensorStateClass.TOTAL_INCREASING
     return None
+
+
+def _energy_reset(states):
+    """Return a shared reset time for total sensors, if their cycles agree."""
+    resets = {state.attributes.get("last_reset") for state in states}
+    if len(resets) != 1:
+        return None
+    reset = resets.pop()
+    if reset is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(reset) if isinstance(reset, str) else reset
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, datetime) and parsed.tzinfo is not None else None
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -163,3 +180,10 @@ class CompositorSensor(SensorEntity):
         if any(state is None for state in states) or not states:
             return None
         return _energy_class(states)
+
+    @property
+    def last_reset(self):
+        if self.state_class != SensorStateClass.TOTAL:
+            return None
+        states = [self.hass.states.get(item) for item in self._mapping.get("entities", [])]
+        return _energy_reset(states)
