@@ -3,7 +3,9 @@
   "name": "Energy Compositor",
   "version": "0.1.0",
   "config_flow": true,
-  "documentation": "https://github.com/ha-energy-compositor/ha-energy-compositor",
+  "documentation": "https://github.com/babgvant/ha-energy-compositor",
+  "issue_tracker": "https://github.com/babgvant/ha-energy-compositor/issues",
+  "codeowners": ["@babgvant"],
   "integration_type": "hub",
   "iot_class": "local_push"
 }

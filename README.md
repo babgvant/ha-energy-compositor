@@ -4,7 +4,9 @@ Energy Compositor is a vendor-neutral Home Assistant custom integration. It comb
 
 ## Install and configure
 
-Copy `custom_components/energy_compositor` into the same directory in your Home Assistant configuration, restart Home Assistant, and add **Energy Compositor** in **Settings → Devices & services**. Open its options to configure Solar, Battery, Grid, and Home channels. Only configured channels create entities; the balance error diagnostic is always created.
+To install with HACS, add `https://github.com/babgvant/ha-energy-compositor` as a **custom repository** of type **Integration**, then install **Energy Compositor** and restart Home Assistant. HACS uses the `custom_components/energy_compositor` directory in this repository. The integration's local icon and logo are included under `brand/` for Home Assistant 2026.3 and later.
+
+For manual installation, copy `custom_components/energy_compositor` into the same directory in your Home Assistant configuration and restart Home Assistant. Then add **Energy Compositor** in **Settings → Devices & services**. Open its options to configure Solar, Battery, Grid, and Home channels. Only configured channels create entities; the balance error diagnostic is always created.
 
 Each channel has an **entity** mode (one sensor), a **sum** mode (all selected sensors), or **none**. Home power also offers **calculated** mode:
 
