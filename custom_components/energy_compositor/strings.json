@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {"user": {"title": "Energy Compositor", "description": "Create one energy system for this home.", "data": {"name": "Name"}}}
+  },
+  "options": {
+    "step": {
+      "init": {"title": "Configure sources", "menu_options": {"solar": "Solar", "battery": "Battery", "grid": "Grid", "home": "Home"}},
+      "solar": {"title": "Solar sources", "data": {"solar_energy_mode": "Solar energy mode", "solar_energy_entities": "Solar energy entities", "solar_power_mode": "Solar power mode", "solar_power_entities": "Solar power entities"}},
+      "battery": {"title": "Battery sources", "data": {"battery_charge_energy_mode": "Charge energy mode", "battery_charge_energy_entities": "Charge energy entities", "battery_discharge_energy_mode": "Discharge energy mode", "battery_discharge_energy_entities": "Discharge energy entities", "battery_charge_power_mode": "Charge power mode", "battery_charge_power_entities": "Charge power entities", "battery_discharge_power_mode": "Discharge power mode", "battery_discharge_power_entities": "Discharge power entities", "battery_soc_mode": "Battery SOC mode", "battery_soc_entities": "Battery SOC entity"}},
+      "grid": {"title": "Grid sources", "data": {"grid_import_energy_mode": "Import energy mode", "grid_import_energy_entities": "Import energy entities", "grid_export_energy_mode": "Export energy mode", "grid_export_energy_entities": "Export energy entities", "grid_import_power_mode": "Import power mode", "grid_import_power_entities": "Import power entities", "grid_export_power_mode": "Export power mode", "grid_export_power_entities": "Export power entities"}},
+      "home": {"title": "Home sources", "data": {"home_energy_mode": "Home energy mode", "home_energy_entities": "Home energy entities", "home_power_mode": "Home power mode", "home_power_entities": "Home power entities"}}
+    },
+    "error": {
+      "invalid_mode": "Choose a supported mode.",
+      "missing_entities": "Choose at least one source entity.",
+      "one_entity_required": "Choose exactly one source entity.",
+      "duplicate_entities": "Choose each source only once.",
+      "invalid_entity": "Choose sensor entities.",
+      "self_source": "An Energy Compositor entity cannot be used as a source.",
+      "missing_dependency": "Calculated home power needs solar, grid import/export and battery charge/discharge power sources.",
+      "invalid_channel": "The channel configuration is invalid."
+    }
+  }
+}
