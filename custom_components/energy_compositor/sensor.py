@@ -72,13 +72,19 @@ async def async_setup_entry(hass, entry, async_add_entities):
     active = {key: value for key, value in mappings.items() if key in CHANNELS and value.get("mode") != "none"}
     sensors = {key: CompositorSensor(entry, key, active[key]) for key in active}
     sensors["balance_error_power"] = CompositorSensor(entry, "balance_error_power", {"mode": "calculated", "entities": []})
-    async_add_entities(list(sensors.values()))
 
     watched = {entity for mapping in active.values() for entity in mapping.get("entities", [])}
+    registry = er.async_get(hass)
+    sources = []
+    for entity_id in sorted(watched):
+        source_entry = registry.async_get(entity_id)
+        sources.append(SourceSensor(entry, entity_id, source_entry.id if source_entry else None))
+    entities = [*sensors.values(), *sources]
+    async_add_entities(entities)
 
     @callback
     def source_changed(event):
-        for sensor in sensors.values():
+        for sensor in entities:
             sensor.async_write_ha_state()
 
     if watched:
@@ -97,6 +103,65 @@ async def async_setup_entry(hass, entry, async_add_entities):
             hass.config_entries.async_update_entry(entry, options={**entry.options, "channels": updated})
 
         entry.async_on_unload(hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, registry_changed))
+
+
+class SourceSensor(SensorEntity):
+    """Expose a configured input on the virtual device for inspection."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(self, entry, entity_id, registry_id=None):
+        self._source_entity_id = entity_id
+        self._attr_unique_id = f"{entry.entry_id}_source_{registry_id or entity_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.title,
+            manufacturer="Energy Compositor",
+            model="Virtual energy system",
+        )
+
+    @property
+    def _source(self):
+        return self.hass.states.get(self._source_entity_id)
+
+    @property
+    def name(self):
+        source = self._source
+        return f"Source {source.attributes.get('friendly_name', self._source_entity_id) if source else self._source_entity_id}"
+
+    @property
+    def available(self):
+        source = self._source
+        return source is not None and source.state not in ("unknown", "unavailable")
+
+    @property
+    def native_value(self):
+        return self._source.state if self.available else None
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._source.attributes.get("unit_of_measurement") if self._source else None
+
+    @property
+    def device_class(self):
+        return self._source.attributes.get("device_class") if self._source else None
+
+    @property
+    def state_class(self):
+        return self._source.attributes.get("state_class") if self._source else None
+
+    @property
+    def last_reset(self):
+        return _energy_reset([self._source]) if self._source else None
+
+    @property
+    def extra_state_attributes(self):
+        attributes = dict(self._source.attributes) if self._source else {}
+        # SensorEntity supplies these from the corresponding properties.
+        for key in ("friendly_name", "unit_of_measurement", "device_class", "state_class", "last_reset"):
+            attributes.pop(key, None)
+        return {**attributes, "source_entity": self._source_entity_id}
 
 
 class CompositorSensor(SensorEntity):
@@ -134,8 +199,26 @@ class CompositorSensor(SensorEntity):
     def extra_state_attributes(self):
         return {
             "source_mode": self._mapping["mode"],
-            "source_entities": self._mapping.get("entities", []),
+            "source_entities": self._source_entities(self._channel),
         }
+
+    def _source_entities(self, channel, seen=None):
+        """List every configured input, including calculated dependencies."""
+        seen = seen or set()
+        if channel in seen:
+            return []
+        seen = seen | {channel}
+        mapping = self._mapping if channel == self._channel else self._entry.options.get("channels", {}).get(channel)
+        if not mapping or mapping.get("mode") == "none":
+            return []
+        if mapping.get("mode") != "calculated":
+            return list(mapping.get("entities", []))
+        terms = BALANCE_TERMS if channel == "balance_error_power" else HOME_POWER_TERMS
+        return list(dict.fromkeys(
+            entity_id
+            for source in terms
+            for entity_id in self._source_entities(source, seen)
+        ))
 
     def _value(self, channel, seen=None):
         """Evaluate one channel; dependencies are calculated in memory."""

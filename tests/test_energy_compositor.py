@@ -10,7 +10,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
 from custom_components.energy_compositor.config_flow import validate_mapping, validate_mappings
 from custom_components.energy_compositor import async_unload_entry
-from custom_components.energy_compositor.sensor import CompositorSensor
+from custom_components.energy_compositor.sensor import CompositorSensor, SourceSensor
 from custom_components.energy_compositor.sensor import async_setup_entry as async_setup_sensors
 
 
@@ -102,6 +102,47 @@ def test_calculated_home_and_balance(hass):
     assert balance.native_value == 50
 
 
+@pytest.mark.parametrize("mode, entities", [
+    ("entity", ["sensor.solar"]),
+    ("sum", ["sensor.solar_a", "sensor.solar_b"]),
+])
+def test_direct_source_attributes(hass, mode, entities):
+    sensor = make_sensor(hass, "solar_power", {"mode": mode, "entities": entities})
+    assert sensor.extra_state_attributes == {
+        "source_mode": mode, "source_entities": entities,
+    }
+
+
+def test_calculated_source_attributes_include_all_dependencies(hass):
+    channels = {
+        "solar_power": {"mode": "sum", "entities": ["sensor.pv_a", "sensor.pv_b"]},
+        "grid_import_power": {"mode": "entity", "entities": ["sensor.import"]},
+        "battery_discharge_power": {"mode": "entity", "entities": ["sensor.discharge"]},
+        "grid_export_power": {"mode": "entity", "entities": ["sensor.export"]},
+        "battery_charge_power": {"mode": "entity", "entities": ["sensor.charge"]},
+        "home_power": {"mode": "calculated", "entities": []},
+    }
+    expected = ["sensor.pv_a", "sensor.pv_b", "sensor.import", "sensor.discharge", "sensor.export", "sensor.charge"]
+    home = make_sensor(hass, "home_power", channels["home_power"], channels)
+    balance = make_sensor(hass, "balance_error_power", {"mode": "calculated", "entities": []}, channels)
+    # Missing states must not hide configured inputs. Calculated home repeats
+    # the balance inputs, which should each be listed only once.
+    assert home.available is False
+    assert home.extra_state_attributes["source_entities"] == expected
+    assert balance.extra_state_attributes["source_entities"] == expected
+    channels["home_power"] = {"mode": "sum", "entities": ["sensor.load_a", "sensor.load_b"]}
+    assert balance.extra_state_attributes["source_entities"] == expected + ["sensor.load_a", "sensor.load_b"]
+
+
+def test_calculated_source_attributes_skip_missing_and_disabled_channels(hass):
+    channels = {
+        "solar_power": {"mode": "entity", "entities": ["sensor.pv"]},
+        "grid_import_power": {"mode": "none", "entities": ["sensor.unused"]},
+    }
+    balance = make_sensor(hass, "balance_error_power", {"mode": "calculated", "entities": []}, channels)
+    assert balance.extra_state_attributes["source_entities"] == ["sensor.pv"]
+
+
 def test_mapping_validation():
     assert validate_mapping("home_power", {"mode": "sum", "entities": []}) == "missing_entities"
     assert validate_mapping("home_power", {"mode": "sum", "entities": ["sensor.a", "sensor.a"]}) == "duplicate_entities"
@@ -110,6 +151,60 @@ def test_mapping_validation():
     registry.async_get.return_value = SimpleNamespace(platform="energy_compositor")
     assert validate_mapping("home_power", {"mode": "entity", "entities": ["sensor.a"]}, registry) == "self_source"
     assert validate_mappings({"home_power": {"mode": "calculated", "entities": []}}) == "missing_dependency"
+
+
+def test_source_sensor_preserves_metadata_and_recovers(hass):
+    entry = SimpleNamespace(entry_id="stable-id", title="Energy Compositor")
+    source = SourceSensor(entry, "sensor.pv", "registry-id")
+    source.hass = hass
+    attributes = {
+        "friendly_name": "PV Total", "unit_of_measurement": "MWh",
+        "device_class": "energy", "state_class": "total",
+        "last_reset": "2026-09-27T00:00:00+00:00", "meter_status": "online",
+    }
+    assert source.available is False
+    assert source.extra_state_attributes == {"source_entity": "sensor.pv"}
+    hass.states.async_set("sensor.pv", "1.234", attributes)
+    assert source.available is True
+    assert source.native_value == "1.234"
+    assert source.name == "Source PV Total"
+    assert source.native_unit_of_measurement == "MWh"
+    assert source.device_class == "energy"
+    assert source.state_class == "total"
+    assert source.last_reset == datetime(2026, 9, 27, tzinfo=timezone.utc)
+    assert source.extra_state_attributes == {"meter_status": "online", "source_entity": "sensor.pv"}
+    hass.states.async_set("sensor.pv", "unavailable", attributes)
+    assert source.available is False
+    assert source.native_value is None
+    hass.states.async_set("sensor.pv", "1.235", attributes)
+    assert source.available is True
+    assert source.native_value == "1.235"
+    renamed = SourceSensor(entry, "sensor.renamed_pv", "registry-id")
+    assert renamed.unique_id == source.unique_id
+
+
+async def test_all_configured_sources_are_exposed_once(hass):
+    entry = SimpleNamespace(
+        entry_id="stable-id", title="Energy Compositor",
+        options={"channels": {
+            "solar_power": {"mode": "sum", "entities": ["sensor.pv_a", "sensor.pv_b"]},
+            "home_power": {"mode": "sum", "entities": ["sensor.pv_a", "sensor.load"]},
+            "grid_import_power": {"mode": "none", "entities": ["sensor.unused"]},
+        }},
+        async_on_unload=Mock(),
+    )
+    added = []
+    await async_setup_sensors(hass, entry, added.extend)
+    sources = [sensor for sensor in added if isinstance(sensor, SourceSensor)]
+    assert [sensor._source_entity_id for sensor in sources] == ["sensor.load", "sensor.pv_a", "sensor.pv_b"]
+    for sensor in added:
+        sensor.hass = hass
+        sensor.async_write_ha_state = Mock()
+    hass.states.async_set("sensor.pv_b", "2.5", {"unit_of_measurement": "kW"})
+    await hass.async_block_till_done()
+    pv_b = next(sensor for sensor in sources if sensor._source_entity_id == "sensor.pv_b")
+    assert pv_b.native_value == "2.5"
+    pv_b.async_write_ha_state.assert_called()
 
 
 async def test_shared_state_listener(hass):
